@@ -1,0 +1,126 @@
+alixeaVersion: v1.0
+type: component
+name: Metabase
+description: Metabase, business intelligence and dashboards
+
+supportsAdditionalHosts: { serviceName: 'app' }
+
+hosts:
+  - name: Metabase
+    identifier: app
+    port: 3000
+
+# NOTE! No image is listed here: the platform watches a listed image and moves every deployment to a new build of its
+# tag by itself. These images are not ours, so the chart names them (.alixea/helm/app.yaml) and they change only with it
+images: []
+
+parameterGroups:
+  - name: Admin login
+    identifier: admin
+    description: The admin user created on the first start. Change both in Metabase afterwards.
+    parameters:
+      - name: Email
+        identifier: INITIAL_ADMIN_EMAIL
+        defaultValue: admin@example.com
+        type: string
+      - name: Password
+        identifier: INITIAL_ADMIN_PASSWORD
+        # The trailing digit meets Metabase's password rule
+        defaultValue: '${generate-random-password:16}0'
+        type: secret
+
+  - name: Database
+    identifier: database
+    description: Metabase's own database on the PostgreSQL add-on, and the data it connects to
+    parameters:
+      - name: Database name
+        identifier: MB_DB_DBNAME
+        defaultValue: metabase
+        type: string
+      - name: Reader password
+        description: The read-only PostgreSQL role Metabase queries the connected database with
+        identifier: READER_PASSWORD
+        defaultValue: '${generate-random-password:24}'
+        type: secret
+      - name: Sample database
+        description: Include Metabase's sample database
+        identifier: MB_LOAD_SAMPLE_CONTENT
+        defaultValue: true
+        type: boolean
+
+  - name: Keys
+    identifier: keys
+    description: Generated for this project. Never change the encryption key, Metabase could no longer read the connection details it encrypted with it.
+    parameters:
+      - name: Encryption key
+        identifier: MB_ENCRYPTION_SECRET_KEY
+        defaultValue: '${generate-random-bytes:32}'
+        type: secret
+      - name: Session key
+        description: Changing it logs everyone out
+        identifier: MB_SESSION_SECRET_KEY
+        defaultValue: '${generate-random-bytes:32}'
+        type: secret
+
+  # The group's switch is Metabase's own AI switch
+  - name: Metabot
+    identifier: MB_AI_FEATURES_ENABLED
+    description: Metabase's AI assistant, through the Alixea AI proxy. Billed to your account as AI usage.
+    toggleable: true
+    defaultValue: true
+    parameters:
+      - name: Model
+        identifier: MB_LLM_METABOT_PROVIDER
+        defaultValue: anthropic/claude-sonnet-5-5
+        type: string
+      - name: Model for short tasks
+        # Metabase 64 and 65 send temperature to Haiku 5.5, which it rejects. Switch to claude-haiku-5-5 once Metabase lists it.
+        identifier: MB_LLM_MINI_MODEL
+        defaultValue: anthropic/claude-sonnet-5-5
+        type: string
+
+  - name: Prompt tab
+    identifier: ALIXEA_AGENT_ENABLED
+    description: Let the agent in the prompt tab use Metabase's MCP server, as an admin
+    toggleable: true
+    defaultValue: true
+    parameters:
+      - name: Access token
+        description: The OAuth access token the agent reaches the MCP server with. The platform adds it to the agent's requests.
+        identifier: METABASE_AGENT_TOKEN
+        defaultValue: '${generate-random-bytes:32}'
+        type: secret
+
+environmentVariables:
+  - identifier: MB_DB_TYPE
+    defaultValue: postgres
+  - identifier: MB_SITE_URL
+    defaultValue: '${APP_ENDPOINT}'
+  - identifier: MB_ANON_TRACKING_ENABLED
+    defaultValue: false
+  - identifier: MB_CHECK_FOR_UPDATES
+    defaultValue: false
+  # Metabot through the Alixea AI proxy
+  - identifier: MB_LLM_ANTHROPIC_API_BASE_URL
+    defaultValue: '{alixea-ai-gateway-url}/anthropic'
+  - identifier: MB_LLM_ANTHROPIC_API_KEY
+    defaultValue: '{alixea-ai-gateway-token}'
+  # The proxy is on the deployment's private network, which Metabase refuses by default
+  - identifier: MB_LLM_ALLOWED_NETWORKS
+    defaultValue: allow-private
+
+mcp:
+  - url: 'http://app.${ALIXEA_NAMESPACE}:3000/api/metabase-mcp'
+    headers:
+      Authorization: 'Bearer ${METABASE_AGENT_TOKEN}'
+
+dependencies:
+  - identifier: postgres
+    package: https://github.com/alixea-erp/addon-postgres#v18.7
+    env:
+      include:
+        - POSTGRES_HOST:MB_DB_HOST
+        - POSTGRES_PORT:MB_DB_PORT
+        - POSTGRES_USER:MB_DB_USER
+        - POSTGRES_PASSWORD:MB_DB_PASS
+        - POSTGRES_DB
